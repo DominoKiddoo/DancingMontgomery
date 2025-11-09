@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Dancing Montgomery</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+	<style>
+		body, html {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			overflow: hidden;
+			position: relative;
+			background: #000;
+			color: white;
+			font-family: Arial, sans-serif;
+		}
+
+		#settingsToggle {
+			position: fixed;
+			top: 15px;
+			right: 15px;
+			background: rgba(0,0,0,0.7);
+			color: white;
+			border: none;
+			border-radius: 50%;
+			width: 40px;
+			height: 40px;
+			font-size: 22px;
+			cursor: pointer;
+			z-index: 1100;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			user-select: none;
+			transition: background 0.3s ease;
+		}
+		#settingsToggle:hover {
+			background: rgba(255,255,255,0.2);
+		}
+
+		#settings {
+			position: fixed;
+			top: 0;
+			right: 0;
+			height: 100%;
+			width: 320px;
+			background: rgba(0,0,0,0.9);
+			box-shadow: -3px 0 10px rgba(0,0,0,0.7);
+			padding: 20px 25px;
+			box-sizing: border-box;
+			overflow-y: auto;
+			transform: translateX(100%);
+			transition: transform 0.3s ease;
+			z-index: 1050;
+			user-select: none;
+			display: flex;
+			flex-direction: column;
+		}
+		#settings.open {
+			transform: translateX(0);
+		}
+
+		#settings label {
+			display: block;
+			margin: 12px 0 6px;
+		}
+
+		img.montgomery {
+			position: absolute;
+			height: auto;
+			user-select: none;
+			pointer-events: none;
+			will-change: transform, left, top, filter;
+		}
+
+		button#applySettings {
+			margin-top: auto;
+			padding: 8px 15px;
+			border: none;
+			border-radius: 5px;
+			background: #444;
+			color: white;
+			cursor: pointer;
+			font-size: 1.1rem;
+			width: 100%;
+			transition: background 0.3s ease;
+		}
+		button#applySettings:hover {
+			background: #666;
+		}
+
+		input[type=number], select {
+			width: 100%;
+			padding: 6px 8px;
+			border-radius: 4px;
+			border: none;
+			font-size: 1rem;
+			box-sizing: border-box;
+		}
+
+		#percentageValue {
+			font-weight: bold;
+			text-align: right;
+			margin-top: 2px;
+			color: #ddd;
+		}
+
+		/* Hue shift animation */
+		@keyframes hueShift {
+			from {
+				filter: hue-rotate(0deg);
+			}
+			to {
+				filter: hue-rotate(360deg);
+			}
+		}
+
+		.rainbow {
+			animation: hueShift 6s linear infinite;
+		}
+
+		/* Tip styling */
+		#tip {
+			position: fixed;
+			top: 60px;
+			right: 15px;
+			background: rgba(0,0,0,0.7);
+			color: white;
+			padding: 8px 12px;
+			border-radius: 5px;
+			font-size: 0.9rem;
+			user-select: none;
+			opacity: 1;
+			transition: opacity 1s ease;
+			z-index: 1200;
+			pointer-events: none;
+		}
+		#tip.hide {
+			opacity: 0;
+		}
+	</style>
+</head>
+<body>
+	<button id="settingsToggle" title="Toggle Settings">⚙️</button>
+
+	<div id="tip">Click on the gear icon to change settings</div>
+
+	<div id="settings" aria-label="Settings menu" role="region">
+		<label for="numGifs">Number of GIFs (no max!):</label>
+		<input type="number" id="numGifs" min="1" value="10" step="1" />
+
+		<label for="movementType">Movement type for percentage of Montgomerys:</label>
+		<select id="movementType" aria-describedby="movementTypeDesc">
+			<option value="none">No movement</option>
+			<option value="random">Random movement</option>
+			<option value="dvd">DVD Logo movement</option>
+		</select>
+		<div id="movementTypeDesc" style="font-size: 0.85rem; color: #888; margin-bottom: 8px;">
+			Choose how a portion of Montgomery GIFs move.
+		</div>
+
+		<label for="movementPercentage">Percentage of GIFs with this movement:</label>
+		<input type="range" id="movementPercentage" min="0" max="100" value="50" />
+		<div id="percentageValue">50%</div>
+
+		<label for="movementSpeed">Movement speed multiplier (≥ 0.1):</label>
+		<input type="number" id="movementSpeed" min="0.1" value="1" step="0.1" />
+		
+		<label for="minSize">Min size (px):</label>
+		<input type="number" id="minSize" min="10" value="50" step="1" />
+
+		<label for="maxSize">Max size (px):</label>
+		<input type="number" id="maxSize" min="10" value="100" step="1" />
+
+		<label>
+			<input type="checkbox" id="rainbowShift" />
+			Rainbow Hue Shift
+		</label>
+
+		<label>
+			<input type="checkbox" id="musicToggle" />
+			Play music.mp3
+		</label>
+
+		<button id="applySettings">Apply</button>
+	</div>
+
+	<script>
+		const gifSrc = "montgonemery.gif";
+		const container = document.body;
+		let gifs = [];
+		let animationId;
+
+		let movementSpeed = 1;
+
+		// Audio setup
+		let audio;
+		const musicToggle = document.getElementById("musicToggle");
+
+		// Elements
+		const settingsToggle = document.getElementById('settingsToggle');
+		const settingsPanel = document.getElementById('settings');
+		const percentageSlider = document.getElementById('movementPercentage');
+		const percentageValue = document.getElementById('percentageValue');
+		const rainbowCheckbox = document.getElementById('rainbowShift');
+		const minSizeInput = document.getElementById('minSize');
+		const maxSizeInput = document.getElementById('maxSize');
+		const speedInput = document.getElementById('movementSpeed');
+
+		// Toggle settings panel open/close
+		settingsToggle.addEventListener('click', () => {
+			settingsPanel.classList.toggle('open');
+		});
+
+		// Update percentage text on slider input
+		percentageSlider.addEventListener('input', () => {
+			percentageValue.textContent = percentageSlider.value + "%";
+		});
+
+		// Helper random range function
+		function randomRange(min, max) {
+			return Math.random() * (max - min) + min;
+		}
+
+		// Returns a random position within viewport (adjusted for gif size)
+		function randomPosition(size) {
+			const x = Math.random() * (window.innerWidth - size);
+			const y = Math.random() * (window.innerHeight - size);
+			return { x, y };
+		}
+
+		function createGifs(count, movementType, movementPercent, rainbow, minSize, maxSize) {
+			// Clear existing GIFs
+			gifs.forEach(g => container.removeChild(g.img));
+			gifs = [];
+
+			const moveCount = Math.floor(count * (movementPercent / 100));
+
+			for (let i = 0; i < count; i++) {
+				const size = randomRange(minSize, maxSize);
+				const img = document.createElement("img");
+				img.src = gifSrc;
+				img.classList.add("montgomery");
+				if (rainbow) img.classList.add("rainbow");
+				img.style.width = size + "px";
+				img.style.height = "auto";
+
+				const pos = randomPosition(size);
+				img.style.left = pos.x + "px";
+				img.style.top = pos.y + "px";
+
+				container.appendChild(img);
+
+				let assignedMovement = 'none';
+				if (i < moveCount) {
+					assignedMovement = movementType;
+				}
+
+				let vx = 0, vy = 0;
+
+				if (assignedMovement === 'random') {
+					vx = (Math.random() - 0.5) * 1.5 * movementSpeed;
+					vy = (Math.random() - 0.5) * 1.5 * movementSpeed;
+				} else if (assignedMovement === 'dvd') {
+					vx = (Math.random() < 0.5 ? 1 : -1) * 2 * movementSpeed;
+					vy = (Math.random() < 0.5 ? 1 : -1) * 2 * movementSpeed;
+				}
+
+				gifs.push({
+					img,
+					x: pos.x,
+					y: pos.y,
+					vx,
+					vy,
+					size,
+					movement: assignedMovement
+				});
+			}
+
+			// Shuffle gifs array so movement-assigned GIFs are randomly distributed
+			for (let i = gifs.length - 1; i > 0; i--) {
+				const j = Math.floor(Math.random() * (i + 1));
+				[gifs[i], gifs[j]] = [gifs[j], gifs[i]];
+			}
+		}
+
+		function animate() {
+			for (const gif of gifs) {
+				if (gif.movement === 'none') continue;
+
+				gif.x += gif.vx;
+				gif.y += gif.vy;
+
+				// Bounce edges based on size
+				if (gif.x <= 0) {
+					gif.x = 0;
+					gif.vx *= -1;
+				} else if (gif.x >= window.innerWidth - gif.size) {
+					gif.x = window.innerWidth - gif.size;
+					gif.vx *= -1;
+				}
+
+				if (gif.y <= 0) {
+					gif.y = 0;
+					gif.vy *= -1;
+				} else if (gif.y >= window.innerHeight - gif.size) {
+					gif.y = window.innerHeight - gif.size;
+					gif.vy *= -1;
+				}
+
+				if (gif.movement === 'random') {
+					gif.vx += (Math.random() - 0.5) * 0.2 * movementSpeed;
+					gif.vy += (Math.random() - 0.5) * 0.2 * movementSpeed;
+					const maxSpeed = 1.5 * movementSpeed;
+					gif.vx = Math.max(Math.min(gif.vx, maxSpeed), -maxSpeed);
+					gif.vy = Math.max(Math.min(gif.vy, maxSpeed), -maxSpeed);
+				}
+
+				gif.img.style.left = gif.x + "px";
+				gif.img.style.top = gif.y + "px";
+			}
+			animationId = requestAnimationFrame(animate);
+		}
+
+		function stopAnimation() {
+			if (animationId) {
+				cancelAnimationFrame(animationId);
+				animationId = null;
+			}
+		}
+
+		// Play or pause music based on checkbox
+		function handleMusicToggle(play) {
+			if (!audio) {
+				audio = new Audio("music.mp3");
+				audio.loop = true;
+			}
+			if (play) {
+				audio.play().catch(() => {
+					// Auto-play might be blocked; ignore errors
+				});
+			} else {
+				audio.pause();
+				audio.currentTime = 0;
+			}
+		}
+
+		document.getElementById("applySettings").addEventListener("click", () => {
+			const count = Math.max(parseInt(document.getElementById("numGifs").value) || 10, 1);
+			const movementType = document.getElementById("movementType").value;
+			const movementPercent = parseInt(document.getElementById("movementPercentage").value) || 0;
+			const rainbow = rainbowCheckbox.checked;
+
+			let minSize = parseInt(minSizeInput.value) || 50;
+			let maxSize = parseInt(maxSizeInput.value) || 100;
+
+			// Validate sizes
+			if (minSize < 10) minSize = 10;
+			if (maxSize < minSize) maxSize = minSize;
+
+			const playMusic = musicToggle.checked;
+			let speedVal = parseFloat(speedInput.value);
+			if (isNaN(speedVal) || speedVal < 0.1) speedVal = 1;
+			movementSpeed = speedVal;
+
+			createGifs(count, movementType, movementPercent, rainbow, minSize, maxSize);
+			stopAnimation();
+
+			if (movementType !== 'none' && movementPercent > 0) {
+				animate();
+			}
+
+			handleMusicToggle(playMusic);
+
+			settingsPanel.classList.remove('open');
+		});
+
+		// Initialize default state and show tip
+		window.onload = () => {
+			document.getElementById("applySettings").click();
+
+			// Show tip, then fade out after 4 seconds
+			const tip = document.getElementById('tip');
+			setTimeout(() => {
+				tip.classList.add('hide');
+				// Remove from DOM after fade out transition (1s)
+				setTimeout(() => tip.remove(), 1000);
+			}, 4000);
+		};
+
+		// Keep GIFs inside viewport on resize
+		window.addEventListener('resize', () => {
+			for (const gif of gifs) {
+				if (gif.x > window.innerWidth - gif.size) gif.x = window.innerWidth - gif.size;
+				if (gif.y > window.innerHeight - gif.size) gif.y = window.innerHeight - gif.size;
+				gif.img.style.left = gif.x + "px";
+				gif.img.style.top = gif.y + "px";
+			}
+		});
+	</script>
+</body>
+</html>
